@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import * as fs from 'fs';
 import { logger } from '../../src/utils/logger.js';
 
 // Mock middleware to avoid complex dependencies
@@ -367,6 +368,41 @@ describe('Server', () => {
       const body = await response.json();
       expect(body.version).toBeDefined();
       expect(typeof body.version).toBe('string');
+    });
+  });
+
+  describe('instructions endpoint', () => {
+    it('returns the requested mem-search section instead of the full skill', async () => {
+      const skillContent = await Bun.file(
+        new URL('../../plugin/skills/mem-search/SKILL.md', import.meta.url),
+      ).text();
+      const readFileSpy = spyOn(fs.promises, 'readFile').mockResolvedValue(skillContent);
+
+      server = new Server(mockOptions);
+      const testPort = 40000 + Math.floor(Math.random() * 10000);
+      await server.listen(testPort, '127.0.0.1');
+
+      const expectedSections = [
+        ['workflow', '## The Workflow', '## Search Parameters'],
+        ['search_params', '## Search Parameters', '## Examples'],
+        ['examples', '## Examples', '## Why This Workflow'],
+      ] as const;
+
+      for (const [topic, heading, nextHeading] of expectedSections) {
+        const response = await fetch(
+          `http://127.0.0.1:${testPort}/api/instructions?topic=${topic}`,
+        );
+        expect(response.status).toBe(200);
+
+        const body = await response.json() as {
+          content: Array<{ type: string; text: string }>;
+        };
+        const text = body.content[0]?.text ?? '';
+        expect(text).toContain(heading);
+        expect(text).not.toContain(nextHeading);
+      }
+
+      readFileSpy.mockRestore();
     });
   });
 
